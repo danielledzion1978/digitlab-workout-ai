@@ -26,7 +26,7 @@ except Exception:
     Document = None
 
 APP_NAME = "DigitLab Workout AI"
-APP_TAGLINE = "Test version — health-aware workout planner"
+APP_TAGLINE = "Test version — work-aware health and workout planner"
 BRAND_LINE = "by DigitLabCreative"
 ASSETS_DIR = Path(__file__).parent / "assets"
 LOGO = ASSETS_DIR / "digitlab_logo.png"
@@ -195,9 +195,51 @@ def detect_health_flags(profile_text: str, docs_text: str) -> dict[str, Any]:
     return flags
 
 
-def build_plan(age: int, goal: str, days: int, minutes: int, equipment: list[str], flags: dict[str, Any]) -> dict[str, Any]:
+def build_work_guidance(work_profile: dict[str, Any]) -> dict[str, Any]:
+    """Create simple employment-support guidance based on work routine."""
+    status = work_profile.get("status", "Not specified")
+    work_type = work_profile.get("work_type", "Not specified")
+    timing = work_profile.get("best_time", "Not specified")
+    hours = work_profile.get("hours", "")
+    barriers = work_profile.get("work_barriers", "")
+
+    if timing == "before work":
+        timing_note = "Keep this short and gentle: mobility, activation and breathing before leaving for work."
+    elif timing == "during breaks":
+        timing_note = "Use micro-sessions only: 2–5 minutes of standing, walking, stretching or breathing during breaks."
+    elif timing == "after work":
+        timing_note = "Use lower intensity after work if fatigue or pain is higher at the end of the day."
+    elif timing == "rest days only":
+        timing_note = "Avoid adding pressure on work days; place the main sessions on non-working days."
+    else:
+        timing_note = "Use the most realistic time of day and keep the plan easy to repeat."
+
+    work_type_note = ""
+    if "physical" in work_type.lower() or any(word in work_type.lower() for word in ["standing", "walking", "lifting"]):
+        work_type_note = "Because the work pattern is physically active, avoid overloading legs/back after demanding shifts."
+    elif "sedentary" in work_type.lower() or "sitting" in work_type.lower():
+        work_type_note = "Because the work pattern is mainly sedentary, include short movement breaks and posture changes."
+    elif "mixed" in work_type.lower():
+        work_type_note = "Because the work pattern is mixed, vary sessions depending on fatigue after each workday."
+    else:
+        work_type_note = "The plan should be adjusted if work duties are physically demanding or symptoms change."
+
+    return {
+        "status": status,
+        "work_type": work_type,
+        "working_hours": hours or "Not specified",
+        "preferred_exercise_timing": timing,
+        "work_barriers": barriers or "None provided",
+        "timing_note": timing_note,
+        "work_type_note": work_type_note,
+    }
+
+
+def build_plan(age: int, goal: str, days: int, minutes: int, equipment: list[str], flags: dict[str, Any], work_profile: dict[str, Any] | None = None) -> dict[str, Any]:
     low_impact = flags["conditions"] or flags["pain_or_limitations"]
     equipment_text = ", ".join(equipment) if equipment else "no equipment"
+    work_profile = work_profile or {}
+    work_guidance = build_work_guidance(work_profile)
     plan_days = []
     focus_cycle = ["Mobility + full body", "Low-impact cardio", "Strength foundation", "Recovery mobility"]
     for i in range(days):
@@ -227,6 +269,7 @@ def build_plan(age: int, goal: str, days: int, minutes: int, equipment: list[str
                 "day": f"Day {i + 1}",
                 "focus": focus,
                 "duration": f"{minutes} minutes",
+                "work_fit": work_guidance["timing_note"],
                 "warmup": ["5 minutes easy movement", "Gentle joint circles", "Breathing reset"],
                 "main": main,
                 "cooldown": ["Gentle stretching", "Slow breathing", "Log pain/fatigue after session"],
@@ -236,7 +279,8 @@ def build_plan(age: int, goal: str, days: int, minutes: int, equipment: list[str
     if flags["red_flags"]:
         avoid.insert(0, "Unsupervised moderate/high-intensity exercise until medically cleared")
     return {
-        "summary": f"A conservative {days}-day plan for {goal}, using {equipment_text}. It is designed for testing feedback, not as medical advice.",
+        "summary": f"A conservative {days}-day plan for {goal}, using {equipment_text}. It also considers work routine and is designed for testing feedback, not as medical advice.",
+        "work_guidance": work_guidance,
         "weekly_plan": plan_days,
         "avoid": avoid,
         "stop_if": ["Chest pain", "Dizziness", "Faintness", "Unusual shortness of breath", "Sharp or worsening pain"],
@@ -264,6 +308,7 @@ def render_feedback_form(context: str) -> None:
             useful = st.radio("Would you use this again?", ["Yes", "Maybe", "No"], horizontal=True)
             clarity = st.slider("How clear is the plan?", 1, 5, 3)
             safety = st.slider("How safe/reasonable does it feel?", 1, 5, 3)
+            work_fit = st.slider("How well does it fit around work/daily routine?", 1, 5, 3)
         with col2:
             pay = st.radio("Would you pay for a better version?", ["Yes", "Maybe", "No"], horizontal=True)
             price = st.selectbox("Best price point", ["£0", "£4.99", "£9.99", "£14.99", "£19.99", "Monthly subscription", "Not sure"])
@@ -278,6 +323,7 @@ def render_feedback_form(context: str) -> None:
             "useful": useful,
             "clarity_1_5": clarity,
             "safety_1_5": safety,
+            "work_fit_1_5": work_fit,
             "would_pay": pay,
             "price": price,
             "email": email,
@@ -338,10 +384,23 @@ def render_result(plan_bundle: dict[str, Any]) -> None:
 
     st.markdown("### Plan summary")
     st.write(plan["summary"])
+
+    if plan.get("work_guidance"):
+        wg = plan["work_guidance"]
+        st.markdown("### Work routine fit")
+        st.write(f"**Work status:** {wg['status']}")
+        st.write(f"**Work activity:** {wg['work_type']}")
+        st.write(f"**Working hours / pattern:** {wg['working_hours']}")
+        st.write(f"**Best exercise timing:** {wg['preferred_exercise_timing']}")
+        st.info(wg["timing_note"])
+        st.caption(wg["work_type_note"])
+
     st.markdown("### Weekly plan")
     for day in plan["weekly_plan"]:
         with st.expander(f"{day['day']} — {day['focus']}", expanded=False):
             st.write(f"**Duration:** {day['duration']}")
+            if day.get("work_fit"):
+                st.write(f"**Work-fit note:** {day['work_fit']}")
             for section in ["warmup", "main", "cooldown"]:
                 st.write(f"**{section.title()}**")
                 for item in day[section]:
@@ -382,7 +441,8 @@ def main() -> None:
         st.write("**Testing goals**")
         st.write("1. Do the plans make sense?")
         st.write("2. Does safety screening help?")
-        st.write("3. Would people pay?")
+        st.write("3. Does it fit around work?")
+        st.write("4. Would people pay?")
 
     tab_builder, tab_about, tab_feedback = st.tabs(["Generate test plan", "How to test", "Feedback log"])
 
@@ -404,10 +464,16 @@ def main() -> None:
             days = st.slider("Training days per week", 1, 6, 3)
             minutes = st.slider("Session length", 10, 90, 30)
             equipment = st.multiselect("Available equipment", ["none", "chair", "bands", "dumbbells", "kettlebell", "bike", "treadmill", "mat"], default=["none"])
+            st.markdown("### Work routine / employment support")
+            work_status = st.selectbox("Current work situation", ["working", "not working", "looking for work", "preparing to return to work", "student/training", "prefer not to say"])
+            work_type = st.selectbox("Work activity type", ["mainly sedentary/sitting", "mainly standing", "walking/mobile", "physical/lifting", "repetitive movement", "mixed", "not applicable"])
+            work_hours = st.text_input("Usual working hours or preferred pattern", placeholder="Example: 9–5, shifts, part-time mornings, flexible")
+            best_time = st.selectbox("Most realistic time to exercise", ["before work", "during breaks", "after work", "rest days only", "flexible / not sure"])
         with col2:
             health_issues = st.text_area("Health issues / injuries / limitations", height=110, placeholder="Example: knee pain, back pain, asthma, high blood pressure...")
             pain_areas = st.text_area("Pain areas or movements to avoid", height=90)
             notes = st.text_area("Anything else the plan should know?", height=90)
+            work_barriers = st.text_area("Work-related barriers or adjustments", height=90, placeholder="Example: fatigue after shifts, standing tolerance, lifting, breaks, travel to work...")
             upload = st.file_uploader("Optional: upload TXT/PDF/DOCX health or fitness note", type=SUPPORTED_FILE_TYPES)
 
         if st.button("Generate test workout plan", type="primary", use_container_width=True):
@@ -425,6 +491,7 @@ def main() -> None:
                     "days": days,
                     "minutes": minutes,
                     "equipment": equipment,
+                    "work_profile": work_profile,
                 },
                 "document_extraction_method": method,
                 "document_excerpt": docs_text[:900],
@@ -445,9 +512,10 @@ def main() -> None:
             **Ask testers:**
             1. Did the plan feel realistic?
             2. Did the safety warnings make sense?
-            3. What was confusing?
-            4. Would you use this again?
-            5. Would you pay for a full 4-week version?
+            3. Did the plan fit around work, shifts or daily routine?
+            4. What was confusing?
+            5. Would you use this again?
+            6. Would you pay for a full 4-week version?
             """
         )
         st.subheader("What this test version intentionally does not include")
