@@ -2,7 +2,6 @@ import base64
 import csv
 import io
 import json
-import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -25,20 +24,49 @@ try:
 except Exception:
     Document = None
 
+
 APP_NAME = "DigitLab Workout AI"
 APP_TAGLINE = "Test version — work-aware health and workout planner"
 BRAND_LINE = "by DigitLabCreative"
+
+APP_PUBLIC_URL = "https://diapp-workout-ai-ctr4uesmbtw4sho23kdwyw.streamlit.app/"
+CONTACT_EMAIL = "danielledzion1978@googlemail.com"
+
 ASSETS_DIR = Path(__file__).parent / "assets"
 LOGO = ASSETS_DIR / "digitlab_logo.png"
 MARK = ASSETS_DIR / "digitlab_mark.png"
+
 FEEDBACK_DIR = Path(__file__).parent / "feedback_data"
 FEEDBACK_CSV = FEEDBACK_DIR / "feedback.csv"
 SUPPORTED_FILE_TYPES = ["txt", "pdf", "docx"]
 
 
+# -----------------------------
+# Helpers
+# -----------------------------
+
 def img_to_base64(path: Path) -> str:
     with open(path, "rb") as f:
         return base64.b64encode(f.read()).decode("utf-8")
+
+
+def inject_css() -> None:
+    st.markdown(
+        """
+        <style>
+        .main .block-container { padding-top: 1.5rem; padding-bottom: 2rem; }
+        .safety-box {
+            border: 1px solid rgba(255, 193, 7, 0.55);
+            background: rgba(255, 193, 7, 0.10);
+            padding: 1rem;
+            border-radius: 0.75rem;
+            margin: 0.5rem 0 1rem 0;
+        }
+        .small-muted { opacity: 0.75; font-size: 0.92rem; }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def render_header() -> None:
@@ -46,12 +74,12 @@ def render_header() -> None:
         logo_b64 = img_to_base64(LOGO)
         st.markdown(
             f"""
-            <div style="display:flex;align-items:center;gap:18px;padding:6px 0 18px 0;">
-                <img src="data:image/png;base64,{logo_b64}" style="height:68px;width:auto;">
+            <div style="display:flex;align-items:center;gap:18px;padding:6px 0 14px 0;">
+                <img src="data:image/png;base64,{logo_b64}" style="height:64px;width:auto;">
                 <div>
-                    <div style="font-size:2rem;font-weight:800;line-height:1.1;">{APP_NAME}</div>
-                    <div style="font-size:1rem;color:#94A3B8;">{APP_TAGLINE}</div>
-                    <div style="font-size:0.9rem;color:#64748B;">{BRAND_LINE}</div>
+                    <div style="font-size:2rem;font-weight:700;line-height:1.1;">{APP_NAME}</div>
+                    <div style="font-size:1rem;opacity:0.9;">{APP_TAGLINE}</div>
+                    <div style="font-size:0.9rem;opacity:0.7;">{BRAND_LINE}</div>
                 </div>
             </div>
             """,
@@ -59,38 +87,44 @@ def render_header() -> None:
         )
     else:
         st.title(APP_NAME)
-        st.caption(APP_TAGLINE)
+        st.caption(f"{APP_TAGLINE} • {BRAND_LINE}")
 
 
-def inject_css() -> None:
+def render_safety_disclaimer() -> None:
+    st.warning(
+        "Important: This app is for general fitness planning and early testing only. "
+        "It is not medical advice and does not replace a qualified personal trainer, "
+        "physiotherapist, GP, doctor, or other healthcare professional."
+    )
+
+    with st.expander("Read safety disclaimer before using this test app", expanded=False):
+        st.markdown(
+            """
+            **DigitLab Workout AI is a prototype.** It provides general workout suggestions only.
+
+            It does **not** provide medical advice, diagnosis, treatment, physiotherapy advice,
+            rehabilitation advice, or a professional personal training service.
+
+            Before starting a new workout plan, speak to a GP, physiotherapist, or qualified fitness
+            professional if you:
+
+            - are new to exercise;
+            - have pain, injury, disability, or a medical condition;
+            - are recovering from illness, surgery, or a recent accident;
+            - have chest pain, dizziness, fainting, unusual shortness of breath, or heart/blood-pressure concerns;
+            - are unsure whether exercise is safe for you.
+
+            Stop exercising immediately if you feel chest pain, dizziness, faintness, severe shortness of breath,
+            sharp pain, worsening pain, or any unusual symptoms.
+            """
+        )
+
     st.markdown(
-        """
-        <style>
-        .stApp { background: #070B18; color: #E5E7EB; }
-        h1, h2, h3 { color: #E5E7EB; }
-        section[data-testid="stSidebar"] { background-color: #020617; }
-        div[data-testid="stMetric"] {
-            background: rgba(15, 23, 42, 0.85);
-            border: 1px solid rgba(148, 163, 184, 0.22);
-            border-radius: 16px;
-            padding: 14px;
-        }
-        .stButton>button {
-            background: linear-gradient(90deg, #38BDF8, #8B5CF6);
-            color: white;
-            border-radius: 12px;
-            border: 0;
-            font-weight: 700;
-        }
-        .small-muted { color:#94A3B8; font-size:0.9rem; }
-        .test-card {
-            background: rgba(15, 23, 42, 0.85);
-            border: 1px solid rgba(148, 163, 184, 0.18);
-            border-radius: 18px;
-            padding: 18px;
-            margin: 8px 0 16px 0;
-        }
-        </style>
+        f"""
+        <div class="small-muted">
+        Public test link: <a href="{APP_PUBLIC_URL}" target="_blank">{APP_PUBLIC_URL}</a><br>
+        Feedback/contact: <a href="mailto:{CONTACT_EMAIL}">{CONTACT_EMAIL}</a>
+        </div>
         """,
         unsafe_allow_html=True,
     )
@@ -102,11 +136,17 @@ def init_state() -> None:
     st.session_state.setdefault("feedback_saved", False)
 
 
+# -----------------------------
+# File extraction
+# -----------------------------
+
 def extract_text(uploaded_file) -> tuple[str, str]:
     if uploaded_file is None:
         return "", "none"
+
     name = uploaded_file.name.lower()
     data = uploaded_file.read()
+
     if name.endswith(".txt"):
         for enc in ["utf-8", "utf-8-sig", "cp1252", "latin-1"]:
             try:
@@ -114,6 +154,7 @@ def extract_text(uploaded_file) -> tuple[str, str]:
             except UnicodeDecodeError:
                 pass
         return data.decode("utf-8", errors="ignore"), "txt-fallback"
+
     if name.endswith(".pdf") and PdfReader is not None:
         try:
             reader = PdfReader(io.BytesIO(data))
@@ -125,6 +166,7 @@ def extract_text(uploaded_file) -> tuple[str, str]:
             return "\n\n".join(pages), "pdf-text"
         except Exception as exc:
             return f"[Could not extract PDF text: {exc}]", "pdf-error"
+
     if name.endswith(".docx") and Document is not None:
         try:
             doc = Document(io.BytesIO(data))
@@ -132,12 +174,17 @@ def extract_text(uploaded_file) -> tuple[str, str]:
             return "\n".join(chunks), "docx"
         except Exception as exc:
             return f"[Could not extract DOCX text: {exc}]", "docx-error"
+
     return "", "unsupported"
 
 
+# -----------------------------
+# Safety screening and plan logic
+# -----------------------------
+
 def detect_health_flags(profile_text: str, docs_text: str) -> dict[str, Any]:
     text = f"{profile_text}\n{docs_text}".lower()
-    flags = {
+    flags: dict[str, Any] = {
         "conditions": [],
         "pain_or_limitations": [],
         "red_flags": [],
@@ -159,7 +206,10 @@ def detect_health_flags(profile_text: str, docs_text: str) -> dict[str, Any]:
         "anxiety": "Anxiety/stress consideration",
         "depression": "Depression / low motivation consideration",
         "dizziness": "Dizziness / balance concern",
+        "injury": "Injury mentioned",
+        "pain": "Pain mentioned",
     }
+
     for term, label in condition_terms.items():
         if term in text and label not in flags["conditions"]:
             flags["conditions"].append(label)
@@ -171,6 +221,7 @@ def detect_health_flags(profile_text: str, docs_text: str) -> dict[str, Any]:
         (r"fatigue|tired", "Fatigue / reduced stamina"),
         (r"limited range|range of motion", "Reduced range of motion"),
     ]
+
     for pattern, label in limitation_patterns:
         if re.search(pattern, text) and label not in flags["pain_or_limitations"]:
             flags["pain_or_limitations"].append(label)
@@ -182,11 +233,17 @@ def detect_health_flags(profile_text: str, docs_text: str) -> dict[str, Any]:
         "recent surgery": "Recent surgery mentioned — medical clearance recommended",
         "dizziness": "Dizziness mentioned — avoid balance-risk exercises and seek medical advice if ongoing",
     }
+
     for term, label in red_terms.items():
         if term in text and label not in flags["red_flags"]:
             flags["red_flags"].append(label)
 
-    if flags["red_flags"] or any("Heart" in c or "Blood pressure" in c or "Hypertension" in c for c in flags["conditions"]):
+    higher_risk = any(
+        "Heart" in c or "Blood pressure" in c or "Hypertension" in c
+        for c in flags["conditions"]
+    )
+
+    if flags["red_flags"] or higher_risk:
         flags["medical_clearance_suggested"] = True
         flags["recommended_intensity"] = "very low / medical clearance first"
     elif flags["conditions"] or flags["pain_or_limitations"]:
@@ -196,7 +253,6 @@ def detect_health_flags(profile_text: str, docs_text: str) -> dict[str, Any]:
 
 
 def build_work_guidance(work_profile: dict[str, Any]) -> dict[str, Any]:
-    """Create simple employment-support guidance based on work routine."""
     status = work_profile.get("status", "Not specified")
     work_type = work_profile.get("work_type", "Not specified")
     timing = work_profile.get("best_time", "Not specified")
@@ -214,12 +270,12 @@ def build_work_guidance(work_profile: dict[str, Any]) -> dict[str, Any]:
     else:
         timing_note = "Use the most realistic time of day and keep the plan easy to repeat."
 
-    work_type_note = ""
-    if "physical" in work_type.lower() or any(word in work_type.lower() for word in ["standing", "walking", "lifting"]):
+    work_type_lower = work_type.lower()
+    if "physical" in work_type_lower or any(word in work_type_lower for word in ["standing", "walking", "lifting"]):
         work_type_note = "Because the work pattern is physically active, avoid overloading legs/back after demanding shifts."
-    elif "sedentary" in work_type.lower() or "sitting" in work_type.lower():
+    elif "sedentary" in work_type_lower or "sitting" in work_type_lower:
         work_type_note = "Because the work pattern is mainly sedentary, include short movement breaks and posture changes."
-    elif "mixed" in work_type.lower():
+    elif "mixed" in work_type_lower:
         work_type_note = "Because the work pattern is mixed, vary sessions depending on fatigue after each workday."
     else:
         work_type_note = "The plan should be adjusted if work duties are physically demanding or symptoms change."
@@ -235,13 +291,22 @@ def build_work_guidance(work_profile: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def build_plan(age: int, goal: str, days: int, minutes: int, equipment: list[str], flags: dict[str, Any], work_profile: dict[str, Any] | None = None) -> dict[str, Any]:
-    low_impact = flags["conditions"] or flags["pain_or_limitations"]
+def build_plan(
+    age: int,
+    goal: str,
+    days: int,
+    minutes: int,
+    equipment: list[str],
+    flags: dict[str, Any],
+    work_profile: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    low_impact = bool(flags["conditions"] or flags["pain_or_limitations"])
     equipment_text = ", ".join(equipment) if equipment else "no equipment"
-    work_profile = work_profile or {}
-    work_guidance = build_work_guidance(work_profile)
+    work_guidance = build_work_guidance(work_profile or {})
+
     plan_days = []
     focus_cycle = ["Mobility + full body", "Low-impact cardio", "Strength foundation", "Recovery mobility"]
+
     for i in range(days):
         focus = focus_cycle[i % len(focus_cycle)]
         if flags["medical_clearance_suggested"]:
@@ -264,6 +329,7 @@ def build_plan(age: int, goal: str, days: int, minutes: int, equipment: list[str
                 "Hip hinge / Romanian deadlift pattern — 3 sets of 8 reps",
                 "Easy cardio finisher — 8–15 minutes",
             ]
+
         plan_days.append(
             {
                 "day": f"Day {i + 1}",
@@ -275,17 +341,32 @@ def build_plan(age: int, goal: str, days: int, minutes: int, equipment: list[str
                 "cooldown": ["Gentle stretching", "Slow breathing", "Log pain/fatigue after session"],
             }
         )
+
     avoid = ["Sharp pain", "Sudden intensity jumps", "Exercises that aggravate known injury"]
     if flags["red_flags"]:
         avoid.insert(0, "Unsupervised moderate/high-intensity exercise until medically cleared")
+
     return {
-        "summary": f"A conservative {days}-day plan for {goal}, using {equipment_text}. It also considers work routine and is designed for testing feedback, not as medical advice.",
+        "summary": (
+            f"A conservative {days}-day plan for {goal}, using {equipment_text}. "
+            "It also considers work routine and is designed for testing feedback, not as medical advice."
+        ),
         "work_guidance": work_guidance,
         "weekly_plan": plan_days,
         "avoid": avoid,
-        "stop_if": ["Chest pain", "Dizziness", "Faintness", "Unusual shortness of breath", "Sharp or worsening pain"],
+        "stop_if": [
+            "Chest pain",
+            "Dizziness",
+            "Faintness",
+            "Unusual shortness of breath",
+            "Sharp or worsening pain",
+        ],
     }
 
+
+# -----------------------------
+# Feedback
+# -----------------------------
 
 def save_feedback(row: dict[str, Any]) -> None:
     FEEDBACK_DIR.mkdir(exist_ok=True)
@@ -311,9 +392,17 @@ def render_feedback_form(context: str) -> None:
             work_fit = st.slider("How well does it fit around work/daily routine?", 1, 5, 3)
         with col2:
             pay = st.radio("Would you pay for a better version?", ["Yes", "Maybe", "No"], horizontal=True)
-            price = st.selectbox("Best price point", ["£0", "£4.99", "£9.99", "£14.99", "£19.99", "Monthly subscription", "Not sure"])
+            price = st.selectbox(
+                "Best price point",
+                ["£0", "£4.99", "£9.99", "£14.99", "£19.99", "Monthly subscription", "Not sure"],
+            )
             email = st.text_input("Email optional", placeholder="only if you want updates")
-        biggest_issue = st.text_area("What should be improved first?", placeholder="Be specific: exercises, safety, UI, upload, export, mobile view...")
+
+        biggest_issue = st.text_area(
+            "What should be improved first?",
+            placeholder="Be specific: exercises, safety, UI, upload, export, mobile view...",
+        )
+
         submitted = st.form_submit_button("Submit feedback", use_container_width=True)
 
     if submitted:
@@ -347,36 +436,48 @@ def render_fake_paywall() -> None:
     st.markdown("---")
     st.markdown(
         """
-        <div class="test-card">
-        <h3>Test pricing signal</h3>
-        <p class="small-muted">This button does not take payment. It only helps validate whether users would consider paying.</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
+        ### Test pricing signal
+        This button does not take payment. It only helps validate whether users would consider paying.
+        """
     )
+
     if st.button("Unlock full personalised 4-week plan — £9.99", use_container_width=True):
         st.session_state.paywall_clicked = True
+
     if st.session_state.paywall_clicked:
         st.success("Test mode: payment is not enabled yet. Thanks — this click is a useful signal.")
 
 
+# -----------------------------
+# Rendering result
+# -----------------------------
+
 def render_result(plan_bundle: dict[str, Any]) -> None:
     flags = plan_bundle["flags"]
     plan = plan_bundle["plan"]
+
     st.markdown("---")
     st.subheader("Your test result")
+
     c1, c2, c3 = st.columns(3)
     c1.metric("Recommended intensity", flags["recommended_intensity"])
     c2.metric("Medical clearance suggested", "Yes" if flags["medical_clearance_suggested"] else "No")
     c3.metric("Plan days", len(plan["weekly_plan"]))
 
     if flags["medical_clearance_suggested"]:
-        st.warning("The app detected red flags or higher-risk health terms. This test version recommends medical clearance before starting anything new or intense.")
+        st.warning(
+            "The app detected red flags or higher-risk health terms. This test version recommends "
+            "medical clearance before starting anything new or intense."
+        )
     else:
         st.info("This is a conservative test plan. Stop if symptoms worsen and seek professional advice where appropriate.")
 
     with st.expander("Detected health/safety flags", expanded=True):
-        for label, key in [("Conditions", "conditions"), ("Pain or limitations", "pain_or_limitations"), ("Red flags", "red_flags")]:
+        for label, key in [
+            ("Conditions", "conditions"),
+            ("Pain or limitations", "pain_or_limitations"),
+            ("Red flags", "red_flags"),
+        ]:
             st.write(f"**{label}**")
             items = flags.get(key) or ["None detected"]
             for item in items:
@@ -426,11 +527,20 @@ def render_result(plan_bundle: dict[str, Any]) -> None:
     )
 
 
+# -----------------------------
+# Main app
+# -----------------------------
+
 def main() -> None:
-    st.set_page_config(page_title=APP_NAME, page_icon=str(MARK) if MARK.exists() else "🏋️", layout="wide")
+    st.set_page_config(
+        page_title=APP_NAME,
+        page_icon=str(MARK) if MARK.exists() else "🏋️",
+        layout="wide",
+    )
     inject_css()
     init_state()
     render_header()
+    render_safety_disclaimer()
 
     with st.sidebar:
         if MARK.exists():
@@ -447,40 +557,136 @@ def main() -> None:
     tab_builder, tab_about, tab_feedback = st.tabs(["Generate test plan", "How to test", "Feedback log"])
 
     with tab_builder:
-        st.markdown(
-            """
-            <div class="test-card">
-            <b>Important:</b> This is an early test tool. It does not diagnose, treat, or replace medical, physiotherapy, or fitness advice.
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
         col1, col2 = st.columns([1.15, 0.85])
+
         with col1:
             name = st.text_input("Name optional", placeholder="Tester name")
             age = st.number_input("Age", min_value=12, max_value=100, value=35)
-            goal = st.selectbox("Main goal", ["fat loss", "mobility", "general fitness", "strength foundation", "return to activity"])
+            goal = st.selectbox(
+                "Main goal",
+                ["fat loss", "mobility", "general fitness", "strength foundation", "return to activity"],
+            )
             activity_level = st.selectbox("Current activity level", ["low", "moderate", "high"])
             days = st.slider("Training days per week", 1, 6, 3)
             minutes = st.slider("Session length", 10, 90, 30)
-            equipment = st.multiselect("Available equipment", ["none", "chair", "bands", "dumbbells", "kettlebell", "bike", "treadmill", "mat"], default=["none"])
+            equipment = st.multiselect(
+                "Available equipment",
+                ["none", "chair", "bands", "dumbbells", "kettlebell", "bike", "treadmill", "mat"],
+                default=["none"],
+            )
+
             st.markdown("### Work routine / employment support")
-            work_status = st.selectbox("Current work situation", ["working", "not working", "looking for work", "preparing to return to work", "student/training", "prefer not to say"])
-            work_type = st.selectbox("Work activity type", ["mainly sedentary/sitting", "mainly standing", "walking/mobile", "physical/lifting", "repetitive movement", "mixed", "not applicable"])
-            work_hours = st.text_input("Usual working hours or preferred pattern", placeholder="Example: 9–5, shifts, part-time mornings, flexible")
-            best_time = st.selectbox("Most realistic time to exercise", ["before work", "during breaks", "after work", "rest days only", "flexible / not sure"])
+            work_status = st.selectbox(
+                "Current work situation",
+                ["working", "not working", "looking for work", "preparing to return to work", "student/training", "prefer not to say"],
+            )
+            work_type = st.selectbox(
+                "Work activity type",
+                [
+                    "mainly sedentary/sitting",
+                    "mainly standing",
+                    "walking/mobile",
+                    "physical/lifting",
+                    "repetitive movement",
+                    "mixed",
+                    "not applicable",
+                ],
+            )
+            work_hours = st.text_input(
+                "Usual working hours or preferred pattern",
+                placeholder="Example: 9–5, shifts, part-time mornings, flexible",
+            )
+            best_time = st.selectbox(
+                "Most realistic time to exercise",
+                ["before work", "during breaks", "after work", "rest days only", "flexible / not sure"],
+            )
+
         with col2:
-            health_issues = st.text_area("Health issues / injuries / limitations", height=110, placeholder="Example: knee pain, back pain, asthma, high blood pressure...")
+            st.markdown("### Safety check")
+            beginner_warning = st.checkbox("I am a beginner or returning after a long break", value=False)
+            has_health_issue = st.radio(
+                "Do you currently have any injury, pain, medical condition, or movement limitation?",
+                ["No", "Yes"],
+                horizontal=True,
+            )
+
+            health_issues = st.text_area(
+                "Health issues / injuries / limitations",
+                height=110,
+                placeholder="Example: knee pain, back pain, asthma, high blood pressure...",
+            )
             pain_areas = st.text_area("Pain areas or movements to avoid", height=90)
             notes = st.text_area("Anything else the plan should know?", height=90)
-            work_barriers = st.text_area("Work-related barriers or adjustments", height=90, placeholder="Example: fatigue after shifts, standing tolerance, lifting, breaks, travel to work...")
-            upload = st.file_uploader("Optional: upload TXT/PDF/DOCX health or fitness note", type=SUPPORTED_FILE_TYPES)
+            work_barriers = st.text_area(
+                "Work-related barriers or adjustments",
+                height=90,
+                placeholder="Example: fatigue after shifts, standing tolerance, lifting, breaks, travel to work...",
+            )
+            upload = st.file_uploader(
+                "Optional: upload TXT/PDF/DOCX health or fitness note",
+                type=SUPPORTED_FILE_TYPES,
+            )
+
+            if beginner_warning:
+                st.info("Beginner warning: start gently and consider asking a trainer to check your exercise technique.")
+
+            if has_health_issue == "Yes":
+                st.warning(
+                    "Because you selected injury/pain/medical condition, this app will generate only a conservative plan. "
+                    "Please consult a GP, physiotherapist, or qualified trainer before starting."
+                )
+
+            safety_acceptance = st.checkbox(
+                "I understand this is not medical advice and does not replace a GP, physiotherapist, or personal trainer.",
+                value=False,
+            )
 
         if st.button("Generate test workout plan", type="primary", use_container_width=True):
+            if not safety_acceptance:
+                st.error("Please confirm the safety disclaimer before generating a plan.")
+                st.stop()
+
+            if has_health_issue == "Yes" and not (health_issues.strip() or pain_areas.strip()):
+                st.error("Please briefly describe the injury, pain, medical condition, or limitation before generating a plan.")
+                st.stop()
+
             docs_text, method = extract_text(upload) if upload else ("", "none")
-            profile_text = f"Name: {name}\nAge: {age}\nGoal: {goal}\nActivity: {activity_level}\nHealth: {health_issues}\nPain: {pain_areas}\nNotes: {notes}"
+            profile_text = (
+                f"Name: {name}\n"
+                f"Age: {age}\n"
+                f"Goal: {goal}\n"
+                f"Activity: {activity_level}\n"
+                f"Beginner or returning after break: {beginner_warning}\n"
+                f"Has injury/pain/medical condition: {has_health_issue}\n"
+                f"Health: {health_issues}\n"
+                f"Pain: {pain_areas}\n"
+                f"Notes: {notes}"
+            )
+
+            work_profile = {
+                "status": work_status,
+                "work_type": work_type,
+                "hours": work_hours,
+                "best_time": best_time,
+                "work_barriers": work_barriers,
+            }
+
             flags = detect_health_flags(profile_text, docs_text)
-            plan = build_plan(int(age), goal, int(days), int(minutes), equipment, flags)
+            if beginner_warning and "Beginner / returning after a long break" not in flags["conditions"]:
+                flags["conditions"].append("Beginner / returning after a long break")
+                if not flags["medical_clearance_suggested"]:
+                    flags["recommended_intensity"] = "beginner / conservative"
+
+            plan = build_plan(
+                age=int(age),
+                goal=goal,
+                days=int(days),
+                minutes=int(minutes),
+                equipment=equipment,
+                flags=flags,
+                work_profile=work_profile,
+            )
+
             st.session_state.last_plan = {
                 "created_at_utc": datetime.now(timezone.utc).isoformat(),
                 "profile": {
@@ -491,6 +697,8 @@ def main() -> None:
                     "days": days,
                     "minutes": minutes,
                     "equipment": equipment,
+                    "beginner_or_returning": beginner_warning,
+                    "has_health_issue": has_health_issue,
                     "work_profile": work_profile,
                 },
                 "document_extraction_method": method,
@@ -519,7 +727,10 @@ def main() -> None:
             """
         )
         st.subheader("What this test version intentionally does not include")
-        st.write("No login, no Stripe, no database backend, no mobile app, no advanced AI coaching. The goal is fast validation.")
+        st.write(
+            "No login, no Stripe, no database backend, no mobile app, no advanced AI coaching. "
+            "The goal is fast validation."
+        )
 
     with tab_feedback:
         st.subheader("Feedback collected in this environment")
@@ -528,9 +739,15 @@ def main() -> None:
                 st.dataframe(pd.read_csv(FEEDBACK_CSV), use_container_width=True)
             else:
                 st.code(FEEDBACK_CSV.read_text(encoding="utf-8"))
-            st.download_button("Download feedback CSV", FEEDBACK_CSV.read_bytes(), "digitlab_workout_feedback.csv", "text/csv")
+            st.download_button(
+                "Download feedback CSV",
+                FEEDBACK_CSV.read_bytes(),
+                "digitlab_workout_feedback.csv",
+                "text/csv",
+            )
         else:
             st.info("No feedback saved yet in this session/environment.")
+
         render_feedback_form("general")
 
 
